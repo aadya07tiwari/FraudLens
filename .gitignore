@@ -1,4 +1,4 @@
-data/
+data/*
 *.db
 *.csv
 __pycache__/
@@ -6,3 +6,6 @@ __pycache__/
 .env
 venv/
 .streamlit/secrets.toml
+!db/fraudlens_demo.db
+!data/build_demo_db.py
+
