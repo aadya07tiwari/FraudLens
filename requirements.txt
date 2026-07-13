@@ -4,3 +4,4 @@ anthropic
 kaggle
 networkx
 plotly
+python-dotenv
