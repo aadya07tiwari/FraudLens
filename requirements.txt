@@ -5,3 +5,4 @@ kaggle
 networkx
 plotly
 python-dotenv
+google-generativeai
