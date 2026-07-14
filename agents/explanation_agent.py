@@ -15,12 +15,19 @@ from scratch - it's to combine those already-grounded sentences (plus
 the risk_score and rules_fired list) into one coherent paragraph,
 without introducing any claim, cause, or number that isn't already
 present in the evidence object.
+
+Section 6 (generate_report) takes that same evidence object plus the
+explanation paragraph and formats both into a Markdown report. It's
+pure formatting - no model call, no new claims - so it never needs to
+raise ValueError the way explain_evidence() does; there's nothing to
+validate that check_evidence() hasn't already covered upstream.
 """
 
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, date
+from typing import Any, Dict, List, Union
 import requests  # swap for anthropic SDK if you prefer
 
 
@@ -297,6 +304,231 @@ def explain_account(account_id: str, fraud_patterns_result: dict, api_key: str =
     return explain_evidence(evidence, api_key=api_key)
 
 
+# ---------------------------------------------------------------------------
+# 6. REPORT GENERATION
+#    Pure formatting: no model call, no new claims. Takes the same
+#    evidence object explain_account() builds, plus the explanation
+#    paragraph explain_findings() already produced, and lays both out as
+#    a Markdown report. Field names below match fraud_detection_agent.py's
+#    real evidence dicts exactly (see its module docstring / __main__):
+#      - circular_transfer   -> "accounts_involved" (list), no absolute timestamp
+#      - velocity_fraud      -> "account" (str), "window_start"/"window_end"
+#      - mule_account        -> "account" (str), "created_at" + "contributing_transactions"
+#      - high_risk_transfer  -> "account" (str), no absolute timestamp
+# ---------------------------------------------------------------------------
+
+# Risk bands only ever map to human-review/escalation actions - never an
+# automated account action (no auto-freeze, auto-block, etc.).
+_RISK_BANDS = [
+    (90, "Critical"),
+    (70, "High"),
+    (40, "Medium"),
+    (0, "Low"),
+]
+
+_RECOMMENDED_ACTIONS = {
+    "Critical": [
+        "Flag for immediate manual review by a senior fraud analyst",
+        "Escalate to the compliance/investigations team",
+        "Submit a manual hold request to the account's risk team (do not auto-freeze)",
+        "Cross-check counterparties against known mule-account watchlists",
+    ],
+    "High": [
+        "Flag for manual review within 24 hours",
+        "Escalate to a fraud analyst for deeper investigation",
+        "Request additional identity/transaction verification from the account holder",
+    ],
+    "Medium": [
+        "Flag for manual review during the next standard review cycle",
+        "Monitor the account for repeat pattern triggers over the next 30 days",
+    ],
+    "Low": [
+        "Log for reference; no immediate action required",
+        "Include in periodic batch review if similar patterns recur",
+    ],
+}
+
+
+def _risk_label(risk_score: Union[int, float]) -> str:
+    for threshold, label in _RISK_BANDS:
+        if risk_score >= threshold:
+            return label
+    return "Low"
+
+
+def _fmt_ts(value: Any) -> str:
+    """Format a timestamp-ish value for display; anything else -> str()."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat(sep=" ")
+    return str(value)
+
+
+def _extract_accounts(primary_account: Any, evidence_list: List[Dict]) -> List[str]:
+    """
+    Collect every account id mentioned across the evidence entries.
+    Matches fraud_detection_agent.py's real keys:
+      - "account"           -> velocity_fraud, mule_account, high_risk_transfer (str)
+      - "accounts_involved" -> circular_transfer (list of 3)
+    """
+    accounts = []
+    if primary_account:
+        accounts.append(str(primary_account))
+
+    for item in evidence_list or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("account"):
+            accounts.append(str(item["account"]))
+        if item.get("accounts_involved"):
+            accounts.extend(str(a) for a in item["accounts_involved"])
+
+    seen = set()
+    ordered = []
+    for a in accounts:
+        if a not in seen:
+            seen.add(a)
+            ordered.append(a)
+    return ordered
+
+
+def _extract_timeline(evidence_list: List[Dict]) -> List[Dict]:
+    """
+    Build a chronological list of events from evidence entries.
+
+    Only two of the four detectors carry an absolute timestamp on the
+    evidence dict itself:
+      - velocity_fraud -> "window_start" / "window_end"
+      - mule_account   -> "created_at" is account creation, not the
+                          event itself; the more representative event
+                          time is the last entry in
+                          "contributing_transactions"
+    circular_transfer and high_risk_transfer evidence dicts only carry
+    elapsed/relative minutes, no absolute timestamp - those go in the
+    untimed bucket rather than being guessed at.
+    """
+    timed, untimed = [], []
+
+    for item in evidence_list or []:
+        if not isinstance(item, dict):
+            continue
+        desc = item.get("evidence") or str(item)
+        pattern = item.get("pattern")
+
+        ts_val = None
+        if pattern == "velocity_fraud":
+            ts_val = item.get("window_start")
+        elif pattern == "mule_account":
+            contributing = item.get("contributing_transactions") or []
+            if contributing:
+                ts_val = contributing[-1].get("timestamp")
+            else:
+                ts_val = item.get("created_at")
+
+        entry = {"pattern": pattern, "description": desc, "raw_ts": ts_val}
+        (timed if ts_val is not None else untimed).append(entry)
+
+    def sort_key(e):
+        ts = e["raw_ts"]
+        return ts.isoformat() if isinstance(ts, (datetime, date)) else str(ts)
+
+    timed.sort(key=sort_key)
+    return timed + untimed
+
+
+def generate_report(evidence: Dict, explanation: str, risk_score: Union[int, float]) -> str:
+    """
+    Format one account's evidence + Claude's grounded explanation into a
+    Markdown report with sections: Fraud Risk Level, Accounts Involved,
+    Evidence, Timeline, Recommended Actions.
+
+    Parameters
+    ----------
+    evidence : dict
+        Same shape explain_account() builds, e.g.:
+        {
+            "account": "ACC_MULE",
+            "risk_score": 35,
+            "rules_fired": ["mule_account"],
+            "evidence": [ {...one detector's evidence dict...}, ... ]
+        }
+    explanation : str
+        The grounded paragraph from explain_findings()/explain_evidence()
+        (its "summary" field).
+    risk_score : int
+        0-100. Passed separately so this function has no hidden
+        dependency on it also being inside `evidence`.
+
+    Returns
+    -------
+    str : Markdown report.
+    """
+    account_id = evidence.get("account")
+    rules_fired = evidence.get("rules_fired") or []
+    evidence_list = evidence.get("evidence") or []
+
+    risk_label = _risk_label(risk_score)
+    accounts = _extract_accounts(account_id, evidence_list)
+    timeline = _extract_timeline(evidence_list)
+
+    lines = []
+
+    lines.append(f"# Fraud Report — {account_id or 'Unknown Account'}")
+    lines.append("")
+
+    lines.append("## Fraud Risk Level")
+    lines.append("")
+    lines.append(f"**{risk_label}** — risk score {risk_score}/100")
+    if rules_fired:
+        lines.append("")
+        lines.append("Rules fired: " + ", ".join(str(r) for r in rules_fired))
+    lines.append("")
+
+    lines.append("## Accounts Involved")
+    lines.append("")
+    if accounts:
+        lines.extend(f"- {a}" for a in accounts)
+    else:
+        lines.append("- No account identifiers found in evidence.")
+    lines.append("")
+
+    lines.append("## Evidence")
+    lines.append("")
+    if evidence_list:
+        for item in evidence_list:
+            if isinstance(item, dict):
+                pattern = item.get("pattern")
+                desc = item.get("evidence") or str(item)
+            else:
+                pattern, desc = None, str(item)
+            lines.append(f"- **{pattern}**: {desc}" if pattern else f"- {desc}")
+    else:
+        lines.append("- No supporting evidence entries were provided.")
+    lines.append("")
+
+    if explanation:
+        lines.append("**Summary:** " + explanation.strip())
+        lines.append("")
+
+    lines.append("## Timeline")
+    lines.append("")
+    if timeline:
+        for entry in timeline:
+            ts_display = _fmt_ts(entry["raw_ts"]) if entry["raw_ts"] is not None else "Time not recorded"
+            pattern = f" ({entry['pattern']})" if entry["pattern"] else ""
+            lines.append(f"- `{ts_display}`{pattern}: {entry['description']}")
+    else:
+        lines.append("- No timestamped events available.")
+    lines.append("")
+
+    lines.append("## Recommended Actions")
+    lines.append("")
+    for a in _RECOMMENDED_ACTIONS.get(risk_label, _RECOMMENDED_ACTIONS["Low"]):
+        lines.append(f"- {a}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
     try:
         result = explain_evidence(EXAMPLE_EVIDENCE)
@@ -304,5 +536,13 @@ if __name__ == "__main__":
         if not result["grounded"]:
             print(f"\n[WARNING] Ungrounded numbers: {result['ungrounded_numbers']}")
             print(f"[WARNING] Ungrounded IDs: {result['ungrounded_ids']}")
+
+        report_md = generate_report(
+            evidence=EXAMPLE_EVIDENCE,
+            explanation=result["summary"],
+            risk_score=EXAMPLE_EVIDENCE["risk_score"],
+        )
+        print("\n" + "=" * 60)
+        print(report_md)
     except ValueError as e:
         print(f"Blocked: {e}")
