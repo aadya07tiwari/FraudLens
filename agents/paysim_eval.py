@@ -44,7 +44,7 @@ import random
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-from fraud_detectors import detect_fraud_patterns
+from fraud_detection_agent import detect_fraud_patterns
 
 PAYSIM_CSV_PATH = "/mnt/user-data/uploads/paysim.csv"  # <-- point this at your download
 
