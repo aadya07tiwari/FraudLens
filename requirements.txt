@@ -6,3 +6,5 @@ networkx
 plotly
 python-dotenv
 google-generativeai
+requests
+reportlab

@@ -15,12 +15,19 @@ from scratch - it's to combine those already-grounded sentences (plus
 the risk_score and rules_fired list) into one coherent paragraph,
 without introducing any claim, cause, or number that isn't already
 present in the evidence object.
+
+Section 6 (generate_report) takes that same evidence object plus the
+explanation paragraph and formats both into a Markdown report. It's
+pure formatting - no model call, no new claims - so it never needs to
+raise ValueError the way explain_evidence() does; there's nothing to
+validate that check_evidence() hasn't already covered upstream.
 """
 
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, date
+from typing import Any, Dict, List, Union
 import requests  # swap for anthropic SDK if you prefer
 
 
@@ -297,6 +304,388 @@ def explain_account(account_id: str, fraud_patterns_result: dict, api_key: str =
     return explain_evidence(evidence, api_key=api_key)
 
 
+# ---------------------------------------------------------------------------
+# 6. REPORT GENERATION
+#    Pure formatting: no model call, no new claims. Takes the same
+#    evidence object explain_account() builds, plus the explanation
+#    paragraph explain_findings() already produced, and lays both out as
+#    a Markdown report. Field names below match fraud_detection_agent.py's
+#    real evidence dicts exactly (see its module docstring / __main__):
+#      - circular_transfer   -> "accounts_involved" (list), no absolute timestamp
+#      - velocity_fraud      -> "account" (str), "window_start"/"window_end"
+#      - mule_account        -> "account" (str), "created_at" + "contributing_transactions"
+#      - high_risk_transfer  -> "account" (str), no absolute timestamp
+# ---------------------------------------------------------------------------
+
+# Risk bands only ever map to human-review/escalation actions - never an
+# automated account action (no auto-freeze, auto-block, etc.).
+_RISK_BANDS = [
+    (90, "Critical"),
+    (70, "High"),
+    (40, "Medium"),
+    (0, "Low"),
+]
+
+_RECOMMENDED_ACTIONS = {
+    "Critical": [
+        "Flag for immediate manual review by a senior fraud analyst",
+        "Escalate to the compliance/investigations team",
+        "Submit a manual hold request to the account's risk team (do not auto-freeze)",
+        "Cross-check counterparties against known mule-account watchlists",
+    ],
+    "High": [
+        "Flag for manual review within 24 hours",
+        "Escalate to a fraud analyst for deeper investigation",
+        "Request additional identity/transaction verification from the account holder",
+    ],
+    "Medium": [
+        "Flag for manual review during the next standard review cycle",
+        "Monitor the account for repeat pattern triggers over the next 30 days",
+    ],
+    "Low": [
+        "Log for reference; no immediate action required",
+        "Include in periodic batch review if similar patterns recur",
+    ],
+}
+
+
+def _risk_label(risk_score: Union[int, float]) -> str:
+    for threshold, label in _RISK_BANDS:
+        if risk_score >= threshold:
+            return label
+    return "Low"
+
+
+def _fmt_ts(value: Any) -> str:
+    """Format a timestamp-ish value for display; anything else -> str()."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat(sep=" ")
+    return str(value)
+
+
+def _extract_accounts(primary_account: Any, evidence_list: List[Dict]) -> List[str]:
+    """
+    Collect every account id mentioned across the evidence entries.
+    Matches fraud_detection_agent.py's real keys:
+      - "account"           -> velocity_fraud, mule_account, high_risk_transfer (str)
+      - "accounts_involved" -> circular_transfer (list of 3)
+    """
+    accounts = []
+    if primary_account:
+        accounts.append(str(primary_account))
+
+    for item in evidence_list or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("account"):
+            accounts.append(str(item["account"]))
+        if item.get("accounts_involved"):
+            accounts.extend(str(a) for a in item["accounts_involved"])
+
+    seen = set()
+    ordered = []
+    for a in accounts:
+        if a not in seen:
+            seen.add(a)
+            ordered.append(a)
+    return ordered
+
+
+def _extract_timeline(evidence_list: List[Dict]) -> List[Dict]:
+    """
+    Build a chronological list of events from evidence entries.
+
+    Only two of the four detectors carry an absolute timestamp on the
+    evidence dict itself:
+      - velocity_fraud -> "window_start" / "window_end"
+      - mule_account   -> "created_at" is account creation, not the
+                          event itself; the more representative event
+                          time is the last entry in
+                          "contributing_transactions"
+    circular_transfer and high_risk_transfer evidence dicts only carry
+    elapsed/relative minutes, no absolute timestamp - those go in the
+    untimed bucket rather than being guessed at.
+    """
+    timed, untimed = [], []
+
+    for item in evidence_list or []:
+        if not isinstance(item, dict):
+            continue
+        desc = item.get("evidence") or str(item)
+        pattern = item.get("pattern")
+
+        ts_val = None
+        if pattern == "velocity_fraud":
+            ts_val = item.get("window_start")
+        elif pattern == "mule_account":
+            contributing = item.get("contributing_transactions") or []
+            if contributing:
+                ts_val = contributing[-1].get("timestamp")
+            else:
+                ts_val = item.get("created_at")
+
+        entry = {"pattern": pattern, "description": desc, "raw_ts": ts_val}
+        (timed if ts_val is not None else untimed).append(entry)
+
+    def sort_key(e):
+        ts = e["raw_ts"]
+        return ts.isoformat() if isinstance(ts, (datetime, date)) else str(ts)
+
+    timed.sort(key=sort_key)
+    return timed + untimed
+
+
+def generate_report(evidence: Dict, explanation: str, risk_score: Union[int, float]) -> str:
+    """
+    Format one account's evidence + Claude's grounded explanation into a
+    Markdown report with sections: Fraud Risk Level, Accounts Involved,
+    Evidence, Timeline, Recommended Actions.
+
+    Parameters
+    ----------
+    evidence : dict
+        Same shape explain_account() builds, e.g.:
+        {
+            "account": "ACC_MULE",
+            "risk_score": 35,
+            "rules_fired": ["mule_account"],
+            "evidence": [ {...one detector's evidence dict...}, ... ]
+        }
+    explanation : str
+        The grounded paragraph from explain_findings()/explain_evidence()
+        (its "summary" field).
+    risk_score : int
+        0-100. Passed separately so this function has no hidden
+        dependency on it also being inside `evidence`.
+
+    Returns
+    -------
+    str : Markdown report.
+    """
+    account_id = evidence.get("account")
+    rules_fired = evidence.get("rules_fired") or []
+    evidence_list = evidence.get("evidence") or []
+
+    risk_label = _risk_label(risk_score)
+    accounts = _extract_accounts(account_id, evidence_list)
+    timeline = _extract_timeline(evidence_list)
+
+    lines = []
+
+    lines.append(f"# Fraud Report — {account_id or 'Unknown Account'}")
+    lines.append("")
+
+    lines.append("## Fraud Risk Level")
+    lines.append("")
+    lines.append(f"**{risk_label}** — risk score {risk_score}/100")
+    if rules_fired:
+        lines.append("")
+        lines.append("Rules fired: " + ", ".join(str(r) for r in rules_fired))
+    lines.append("")
+
+    lines.append("## Accounts Involved")
+    lines.append("")
+    if accounts:
+        lines.extend(f"- {a}" for a in accounts)
+    else:
+        lines.append("- No account identifiers found in evidence.")
+    lines.append("")
+
+    lines.append("## Evidence")
+    lines.append("")
+    if evidence_list:
+        for item in evidence_list:
+            if isinstance(item, dict):
+                pattern = item.get("pattern")
+                desc = item.get("evidence") or str(item)
+            else:
+                pattern, desc = None, str(item)
+            lines.append(f"- **{pattern}**: {desc}" if pattern else f"- {desc}")
+    else:
+        lines.append("- No supporting evidence entries were provided.")
+    lines.append("")
+
+    if explanation:
+        lines.append("**Summary:** " + explanation.strip())
+        lines.append("")
+
+    lines.append("## Timeline")
+    lines.append("")
+    if timeline:
+        for entry in timeline:
+            ts_display = _fmt_ts(entry["raw_ts"]) if entry["raw_ts"] is not None else "Time not recorded"
+            pattern = f" ({entry['pattern']})" if entry["pattern"] else ""
+            lines.append(f"- `{ts_display}`{pattern}: {entry['description']}")
+    else:
+        lines.append("- No timestamped events available.")
+    lines.append("")
+
+    lines.append("## Recommended Actions")
+    lines.append("")
+    for a in _RECOMMENDED_ACTIONS.get(risk_label, _RECOMMENDED_ACTIONS["Low"]):
+        lines.append(f"- {a}")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 7. REPORT EXPORT
+#    Turns generate_report()'s Markdown string into a downloadable file.
+#    Pure formatting on top of pure formatting - no new claims, no model
+#    call, and it only parses the specific Markdown constructs
+#    generate_report() actually emits (h1 "# ", h2 "## ", bullets "- ",
+#    bold "**text**", backtick spans "`text`"). It is not a general
+#    Markdown-to-PDF converter.
+#
+#    fmt="md"  -> writes the Markdown string as-is (fastest MVP option)
+#    fmt="txt" -> writes a plain-text version with the markup stripped
+#    fmt="pdf" -> renders a lightly styled PDF (headings, bullets, a
+#                 colored risk-level label) via reportlab
+# ---------------------------------------------------------------------------
+
+_RISK_COLORS = {
+    "Critical": "#B91C1C",  # red
+    "High": "#C2410C",      # orange
+    "Medium": "#B45309",    # amber
+    "Low": "#15803D",       # green
+}
+
+
+def _strip_markdown(report_md: str) -> str:
+    """Best-effort plain-text version of the report for fmt='txt'."""
+    lines = []
+    for line in report_md.split("\n"):
+        line = re.sub(r"^#{1,6}\s*", "", line)          # headings
+        line = re.sub(r"\*\*(.+?)\*\*", r"\1", line)      # bold
+        line = re.sub(r"`([^`]+)`", r"\1", line)          # code spans
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _inline_markup(text: str) -> str:
+    """Convert the report's Markdown inline syntax into reportlab's XML markup."""
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)               # bold
+    text = re.sub(r"`([^`]+)`", r'<font face="Courier">\1</font>', text)  # code
+    for label, hex_color in _RISK_COLORS.items():
+        text = text.replace(f"<b>{label}</b>", f'<font color="{hex_color}"><b>{label}</b></font>')
+    return text
+
+
+def _markdown_report_to_pdf(report_md: str, output_path: str) -> str:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, HRFlowable, ListFlowable, ListItem,
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "FraudLensTitle", parent=styles["Title"],
+        textColor=colors.HexColor("#1E293B"), fontSize=18, spaceAfter=4,
+    )
+    h2_style = ParagraphStyle(
+        "FraudLensH2", parent=styles["Heading2"],
+        textColor=colors.HexColor("#334155"), spaceBefore=14, spaceAfter=6,
+    )
+    body_style = ParagraphStyle(
+        "FraudLensBody", parent=styles["Normal"], fontSize=10, leading=14,
+    )
+
+    doc = SimpleDocTemplate(
+        output_path, pagesize=letter,
+        topMargin=0.75 * inch, bottomMargin=0.75 * inch,
+        leftMargin=0.75 * inch, rightMargin=0.75 * inch,
+    )
+
+    story = []
+    bullet_buffer = []
+
+    def flush_bullets():
+        if bullet_buffer:
+            story.append(ListFlowable(
+                [ListItem(Paragraph(_inline_markup(b), body_style), spaceAfter=3)
+                 for b in bullet_buffer],
+                bulletType="bullet", leftIndent=18,
+            ))
+            bullet_buffer.clear()
+
+    for raw_line in report_md.split("\n"):
+        line = raw_line.rstrip()
+
+        if line.startswith("# "):
+            flush_bullets()
+            story.append(Paragraph(_inline_markup(line[2:]), title_style))
+            story.append(HRFlowable(width="100%", color=colors.HexColor("#CBD5E1"), thickness=1))
+            story.append(Spacer(1, 8))
+        elif line.startswith("## "):
+            flush_bullets()
+            story.append(Paragraph(_inline_markup(line[3:]), h2_style))
+        elif line.startswith("- "):
+            bullet_buffer.append(line[2:])
+        elif line.strip() == "":
+            flush_bullets()
+            story.append(Spacer(1, 4))
+        else:
+            flush_bullets()
+            story.append(Paragraph(_inline_markup(line), body_style))
+
+    flush_bullets()
+    doc.build(story)
+    return output_path
+
+
+def export_report(report_md: str, output_path: str, fmt: str = "pdf") -> str:
+    """
+    Write generate_report()'s Markdown output to a downloadable file.
+
+    Parameters
+    ----------
+    report_md : str
+        Output of generate_report().
+    output_path : str
+        Where to write the file. Its extension is corrected to match
+        `fmt` if they don't already match.
+    fmt : str
+        One of "pdf", "md", "txt". Default "pdf". If reportlab isn't
+        installed and fmt="pdf", raises ImportError with a suggestion to
+        install it or fall back to fmt="md"/"txt" for a quick MVP export.
+
+    Returns
+    -------
+    str : the path actually written to.
+    """
+    fmt = fmt.lower().lstrip(".")
+    if fmt not in ("pdf", "md", "txt"):
+        raise ValueError(f"Unsupported fmt {fmt!r} - use 'pdf', 'md', or 'txt'.")
+
+    base, _ = os.path.splitext(output_path)
+    output_path = f"{base}.{fmt}"
+
+    if fmt == "md":
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(report_md)
+        return output_path
+
+    if fmt == "txt":
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(_strip_markdown(report_md))
+        return output_path
+
+    # fmt == "pdf"
+    try:
+        return _markdown_report_to_pdf(report_md, output_path)
+    except ImportError as e:
+        raise ImportError(
+            "PDF export needs reportlab (`pip install reportlab`). "
+            "For a quick MVP export without it, call "
+            "export_report(report_md, output_path, fmt='md') or fmt='txt' instead."
+        ) from e
+
+
 if __name__ == "__main__":
     try:
         result = explain_evidence(EXAMPLE_EVIDENCE)
@@ -304,5 +693,16 @@ if __name__ == "__main__":
         if not result["grounded"]:
             print(f"\n[WARNING] Ungrounded numbers: {result['ungrounded_numbers']}")
             print(f"[WARNING] Ungrounded IDs: {result['ungrounded_ids']}")
+
+        report_md = generate_report(
+            evidence=EXAMPLE_EVIDENCE,
+            explanation=result["summary"],
+            risk_score=EXAMPLE_EVIDENCE["risk_score"],
+        )
+        print("\n" + "=" * 60)
+        print(report_md)
+
+        pdf_path = export_report(report_md, "fraud_report_ACC_A", fmt="pdf")
+        print(f"\nWrote {pdf_path}")
     except ValueError as e:
         print(f"Blocked: {e}")
