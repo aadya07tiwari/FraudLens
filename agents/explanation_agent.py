@@ -210,6 +210,17 @@ def explain_evidence(evidence: dict, api_key: str = None) -> dict:
     }
 
 
+def explain_findings(evidence: dict, api_key: str = None) -> dict:
+    """
+    Public entry point: calls the Claude API with the FraudLens prompt
+    template and returns the explanation paragraph (plus grounding check).
+    This is just a named wrapper around explain_evidence() - same logic,
+    kept as a separate name since that's the interface other parts of the
+    app (or teammates) are expected to call.
+    """
+    return explain_evidence(evidence, api_key=api_key)
+
+
 def explain_account(account_id: str, fraud_patterns_result: dict, api_key: str = None) -> dict:
     """
     Convenience wrapper that plugs directly into Member B's real output.
