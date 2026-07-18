@@ -1,65 +1,89 @@
 """
-Thin wrapper around Google AI Studio's Gemini API, shared by the Intent
-Agent and the NL-to-SQL Agent. Centralizing this here means the model
-name, retry logic, and JSON-extraction logic only need to live in one
-place.
+Thin wrapper around the Google Gemini API shared by the Intent Agent and the
+NL-to-SQL Agent. Centralizing this here means the model name, retry logic,
+and JSON-extraction logic only need to live in one place.
 
-NOTE: this replaces the original Anthropic-backed version. Function
-names AND signatures are kept identical (call_claude(system_prompt,
-user_prompt, max_tokens, temperature) -> str, and extract_json(text) ->
-dict) so intent_agent.py and sql_agent.py do not need any changes.
+Note: filename/function names are kept as `claude_client.py` / `call_claude`
+on purpose -- intent_agent.py and sql_agent.py import from this module by
+name, so keeping the interface identical means no changes are needed there.
 """
 import json
 import os
 import re
-
 import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-_model_cache = {}
+_client_configured = False
 
 
-def _get_api_key() -> str:
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GOOGLE_API_KEY is not set. Copy .env.example to .env and add your key. "
-            "Get one free at https://aistudio.google.com/apikey"
-        )
-    return api_key
+def get_client():
+    """Configures the Gemini SDK once and returns the genai module handle."""
+    global _client_configured
+    if not _client_configured:
+        # Accept either name -- GOOGLE_API_KEY and GEMINI_API_KEY have both
+        # been used across the team's local .env files; supporting both
+        # avoids a silent "key not found" for whichever name someone has set.
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY (or GOOGLE_API_KEY) is not set. Copy .env.example "
+                "to .env and add your key. Get one free at https://aistudio.google.com/apikey"
+            )
+        genai.configure(api_key=api_key)
+        _client_configured = True
+    return genai
 
 
-def get_model_name() -> str:
-    return os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+def get_model() -> str:
+    # NOTE: gemini-2.5-flash returns a 404 ("no longer available to new
+    # users") as of this project's testing, and gemini-2.0-flash returns a
+    # quota limit:0 error (deprecated model). gemini-flash-latest is the
+    # current working alias -- if Google renames again, override via
+    # GEMINI_MODEL in .env rather than editing this file.
+    return os.getenv("GEMINI_MODEL", "gemini-flash-latest")
 
 
-def _get_model(system_prompt: str):
-    genai.configure(api_key=_get_api_key())
-    model_name = get_model_name()
-    cache_key = (model_name, system_prompt)
+def call_claude(system_prompt: str, user_prompt: str, max_tokens: int = 2048, temperature: float = 0.0) -> str:
+    """Sends a single-turn request to Gemini and returns the raw text response.
 
-    if cache_key not in _model_cache:
-        _model_cache[cache_key] = genai.GenerativeModel(
-            model_name, system_instruction=system_prompt
-        )
-    return _model_cache[cache_key]
+    Kept the name `call_claude` so intent_agent.py / sql_agent.py don't need
+    to change their imports.
 
+    max_tokens default raised from 1024 -> 2048: Gemini tends to write a bit
+    of reasoning/prose before settling into JSON, and the lower limit was
+    cutting responses off mid-object on real intent-parsing prompts.
+    """
+    client = get_client()
 
-def call_claude(system_prompt: str, user_prompt: str, max_tokens: int = 1024, temperature: float = 0.0) -> str:
-    model = _get_model(system_prompt)
+    # Gemini has no separate system role in the basic generate_content call,
+    # so we fold the system prompt in as a hard instruction up front, with an
+    # explicit "JSON only" directive -- Gemini needs this to be more explicit
+    # than Claude does, or it defaults to explaining itself first.
+    combined_prompt = (
+        f"{system_prompt}\n\n"
+        "IMPORTANT: Respond with ONLY the raw JSON object. "
+        "Do not include any explanation, reasoning steps, numbered lists, "
+        "markdown code fences, or any text before or after the JSON.\n\n"
+        f"{user_prompt}"
+    )
+
+    model = client.GenerativeModel(get_model())
     response = model.generate_content(
-        user_prompt,
-        generation_config=genai.types.GenerationConfig(
+        combined_prompt,
+        generation_config=client.types.GenerationConfig(
             max_output_tokens=max_tokens,
             temperature=temperature,
         ),
     )
-    return response.text.strip()
+
+    return (response.text or "").strip()
 
 
 def extract_json(text: str) -> dict:
+    """Gemini is instructed to return only JSON, but this strips any stray
+    markdown fences or preamble defensively before parsing."""
     cleaned = text.strip()
     cleaned = re.sub(r"^```(json)?", "", cleaned).strip()
     cleaned = re.sub(r"```$", "", cleaned).strip()
@@ -70,16 +94,3 @@ def extract_json(text: str) -> dict:
         if match:
             return json.loads(match.group(0))
         raise ValueError(f"Could not parse JSON from Gemini response:\n{text}")
-
-
-if __name__ == "__main__":
-    print(f"Using model: {get_model_name()}\n")
-
-    reply = call_claude(
-        system_prompt="You respond only with valid JSON, nothing else.",
-        user_prompt='Reply with only this JSON: {"status": "ok", "provider": "gemini"}',
-    )
-    print("Raw response:", reply)
-
-    parsed = extract_json(reply)
-    print("Parsed JSON:", parsed)

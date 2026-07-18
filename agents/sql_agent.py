@@ -6,11 +6,11 @@ SAFE, read-only SQL query against the `transactions` table, then executes
 it and returns the results.
 
 Safety model (defense in depth):
-1. Prompt tells Claude the exact schema and that only SELECT is allowed.
+1. Prompt tells the LLM the exact schema and that only SELECT is allowed.
 2. Generated SQL is checked against an allow-list / deny-list of keywords
    before it ever touches the database.
 3. The SQLite connection itself is opened in read-only mode (uri=...&mode=ro).
-4. A LIMIT is enforced/injected server-side regardless of what Claude wrote.
+4. A LIMIT is enforced/injected server-side regardless of what the LLM wrote.
 """
 
 import os
@@ -83,14 +83,14 @@ class UnsafeSQLError(Exception):
 
 
 def generate_sql(intent: dict, max_row_limit: int = 200) -> str:
-    """Calls Claude to turn an intent dict into a SQL string, then validates it."""
+    """Calls the LLM to turn an intent dict into a SQL string, then validates it."""
     import json as _json
 
     user_prompt = f"Intent JSON:\n{_json.dumps(intent, indent=2)}"
     raw_sql = call_claude(
         system_prompt=SQL_SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        max_tokens=400,
+        max_tokens=800,
         temperature=0.0,
     )
     sql = _clean_sql(raw_sql)

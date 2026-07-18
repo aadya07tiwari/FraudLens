@@ -61,12 +61,12 @@ Return ONLY the JSON object. No prose before or after it.
 
 
 def parse_intent(user_question: str) -> dict:
-    """Calls Claude to convert a natural-language question into a structured
-    intent dict. Raises ValueError if Claude's output can't be parsed."""
+    """Calls the LLM to convert a natural-language question into a structured
+    intent dict. Raises ValueError if the output can't be parsed."""
     raw = call_claude(
         system_prompt=INTENT_SYSTEM_PROMPT,
         user_prompt=user_question,
-        max_tokens=500,
+        max_tokens=1024,
         temperature=0.0,
     )
     intent = extract_json(raw)
