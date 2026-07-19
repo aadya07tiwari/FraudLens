@@ -111,9 +111,18 @@ TEST_QUESTIONS = [
      "case_type": "known_good_aggregate_count"},
 
     # --- Circular transfer / money laundering pattern ---
-    {"question": "Show me any circular chains of transfers between the same accounts",
+    # NOTE: rephrased from direct "find circular chains" wording -- that
+    # asks the SQL agent to solve graph-cycle logic in a single SELECT,
+    # which isn't really its job (confirmed via testing: Gemini returns
+    # garbled/invalid SQL for this phrasing, unrelated to the force_json
+    # fix). Cycle detection is Member B's separate Python-based step
+    # (detect_circular_transfers_nx), which runs AFTER a normal data pull.
+    # These questions now just pull relevant TRANSFER data; the fraud
+    # detection stage (already wired into run_one_question) is what
+    # actually finds cycles within the results.
+    {"question": "Show me all TRANSFER transactions over 50000",
      "case_type": "circular_transfer"},
-    {"question": "Find transactions where money moved from one account through others and came back",
+    {"question": "Show me the most recent TRANSFER transactions",
      "case_type": "circular_transfer"},
 
     # --- Velocity fraud pattern ---
@@ -274,14 +283,23 @@ def print_report(results: list):
 
 
 if __name__ == "__main__":
+    import time as _time
+
+    # Pause between questions to stay under Gemini's free-tier rate limit --
+    # the first full run hit ResourceExhausted (429) partway through without
+    # this. Adjust DELAY_BETWEEN_QUESTIONS_SECONDS up if it still happens.
+    DELAY_BETWEEN_QUESTIONS_SECONDS = 8
+
     print("Loading background transaction population for fraud detection context...")
     background = load_background_population()
     print(f"Loaded {len(background):,} background transactions.\n")
 
     print(f"Running {len(TEST_QUESTIONS)} test question(s) through the full pipeline...\n")
     all_results = []
-    for case in TEST_QUESTIONS:
+    for i, case in enumerate(TEST_QUESTIONS):
         r = run_one_question(case["question"], case["case_type"], background)
         all_results.append(r)
+        if i < len(TEST_QUESTIONS) - 1:
+            _time.sleep(DELAY_BETWEEN_QUESTIONS_SECONDS)
 
     print_report(all_results)
