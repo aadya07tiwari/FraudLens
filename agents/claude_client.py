@@ -114,17 +114,61 @@ def call_claude(
 
 def extract_json(text: str) -> dict:
     """Gemini is instructed to return only JSON, but this strips any stray
-    markdown fences or preamble defensively before parsing."""
+    markdown fences or preamble defensively before parsing. Also attempts
+    a bracket-repair as a final fallback for responses that are valid
+    JSON content but missing their final closing brace/bracket (a
+    confirmed Gemini quirk, not a prompt or token-budget issue)."""
     cleaned = text.strip()
     cleaned = re.sub(r"^```(json)?", "", cleaned).strip()
     cleaned = re.sub(r"```$", "", cleaned).strip()
+
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if match:
+        pass
+
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if match:
+        try:
             return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    try:
+        return json.loads(_repair_unbalanced_json(cleaned))
+    except json.JSONDecodeError:
         raise ValueError(f"Could not parse JSON from Gemini response:\n{text}")
+
+
+def _repair_unbalanced_json(text: str) -> str:
+    """Appends missing closing brackets/braces to a JSON string that's
+    otherwise complete but was cut off before its final closer(s)."""
+    stack = []
+    in_string = False
+    escape = False
+
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+
+    repaired = text
+    for opener in reversed(stack):
+        repaired += "}" if opener == "{" else "]"
+    return repaired
 
 
 
