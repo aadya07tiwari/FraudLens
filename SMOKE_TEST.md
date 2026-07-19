@@ -11,9 +11,11 @@ Run this checklist against the **live deployed app** (Streamlit Cloud), not your
 - [ ] `db/fraudlens.db` warning does NOT appear (confirms the DB shipped/loaded correctly in prod, not just locally)
 
 ## 2. Environment & secrets
-- [ ] `ANTHROPIC_API_KEY` is set correctly in Streamlit Cloud's Secrets (not just in your local `.env`)
+- [ ] `GOOGLE_API_KEY` (Gemini) is set correctly in Streamlit Cloud's Secrets (not just in your local `.env`) — NOT `ANTHROPIC_API_KEY`, which is no longer used
+- [ ] `GEMINI_MODEL` is set to `gemini-flash-latest` (avoid pinning to a specific dated model name — Google deprecates these quickly)
 - [ ] No "missing API key" or auth errors when a question is submitted
 - [ ] `DB_PATH` and `MAX_ROW_LIMIT` env vars (if used) resolve to the expected values in prod
+- [ ] **Confirm billing/quota status on the Gemini project before the demo** — free tier caps at ~20 requests/day; verify there's enough headroom left for the live demo, or that billing is enabled
 
 ## 3. Core pipeline — happy path
 - [ ] Submit a simple, known-good question (e.g. "Show me the top 10 largest TRANSFER transactions flagged as fraud")
@@ -27,6 +29,8 @@ Run this checklist against the **live deployed app** (Streamlit Cloud), not your
 - [ ] Try a question that might tempt an unsafe query (e.g. asking to "delete" or "update" something) — confirm `UnsafeSQLError` blocks it gracefully, doesn't crash the app
 - [ ] Refresh the page mid-conversation — confirm chat history behavior is acceptable (resets cleanly, no broken state)
 - [ ] Click "Clear chat" — confirm it actually clears and doesn't error
+- [ ] **Known limitation (as of last testing):** aggregate/count-style questions (e.g. "how many transactions are flagged as fraud") can intermittently fail with a JSON-parse error due to a `max_tokens` edge case in `intent_agent.py`. Confirm Member A's fix (max_tokens 1024→2048) has landed before relying on these in the demo; if unconfirmed, avoid this question style live.
+- [ ] **Known limitation:** literal "find circular chains of transfers" style phrasing doesn't translate well to a single SQL query — use data-pull phrasing instead (e.g. "show me all TRANSFER transactions over X") and let the fraud-detection stage surface cycles from the results.
 
 ## 5. Visual / graph / report components (once wired in)
 - [ ] Network graph renders (Member C's component) without errors
