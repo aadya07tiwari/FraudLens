@@ -92,6 +92,10 @@ def generate_sql(intent: dict, max_row_limit: int = 200) -> str:
         user_prompt=user_prompt,
         max_tokens=800,
         temperature=0.0,
+        force_json=False,  # this call wants plain SQL text back, not JSON --
+        # forcing JSON mode here was the root cause of UnsafeSQLError: Gemini
+        # was trying to satisfy "return SQL" and "ONLY raw JSON" at once and
+        # producing output that was neither.
     )
     sql = _clean_sql(raw_sql)
     validate_sql(sql)
