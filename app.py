@@ -21,15 +21,24 @@ from dotenv import load_dotenv
 from agents.intent_agent import parse_intent
 from agents.sql_agent import generate_sql, run_query, UnsafeSQLError
 
+from landing import render_landing, apply_console_theme, render_console_header, sidebar_pill
+render_landing()  # shows landing/login page and st.stop()s unless ?page=console
+
 load_dotenv()
 
 DB_PATH = os.getenv("DB_PATH", "db/fraudlens.db")
 MAX_ROW_LIMIT = int(os.getenv("MAX_ROW_LIMIT", "200"))
 
+# set_page_config must be the first Streamlit call on this page, so it
+# comes right after render_landing() (which already st.stop()'d for the
+# landing/login pages) and before apply_console_theme() / anything else.
 st.set_page_config(page_title="FraudLens", page_icon="🔍", layout="wide")
+apply_console_theme()  # reskins this chat UI to match the landing page's brand
 
-st.title("🔍 FraudLens")
-st.caption("Ask questions about transaction data in plain English. Every step is shown for full transparency.")
+render_console_header(
+    subtitle="Ask questions about transaction data in plain English. Every step is shown for full transparency."
+)
+
 
 if not os.path.exists(DB_PATH):
     st.warning(
@@ -120,8 +129,9 @@ with st.sidebar:
         "over PaySim-style transaction data, with full transparency into "
         "every intermediate step."
     )
-    st.markdown(f"**DB path:** `{DB_PATH}`")
-    st.markdown(f"**Row limit cap:** {MAX_ROW_LIMIT}")
+    sidebar_pill("DB PATH", DB_PATH)
+    sidebar_pill("ROW CAP", str(MAX_ROW_LIMIT))
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
     if st.button("Clear chat"):
         st.session_state.messages = []
         st.rerun()

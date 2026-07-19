@@ -66,7 +66,7 @@ def parse_intent(user_question: str) -> dict:
     raw = call_claude(
         system_prompt=INTENT_SYSTEM_PROMPT,
         user_prompt=user_question,
-        max_tokens=1024,
+        max_tokens=2048,
         temperature=0.0,
     )
     intent = extract_json(raw)
