@@ -98,6 +98,13 @@ LANDING_HTML = r"""<!DOCTYPE html>
   }
   #hero-rays{ position:absolute; inset:0; z-index:0; opacity:.55; }
   #hero canvas{ position:absolute; inset:0; z-index:1; }
+  .orb{ position:absolute; border-radius:50%; z-index:0; filter:blur(30px); pointer-events:none; }
+  .orb-a{ width:340px; height:340px; top:8%; left:8%; background:radial-gradient(circle, rgba(255,106,26,0.22) 0%, transparent 70%); animation:orbFloat1 11s ease-in-out infinite; }
+  .orb-b{ width:260px; height:260px; top:12%; right:6%; background:radial-gradient(circle, rgba(255,138,61,0.18) 0%, transparent 70%); animation:orbFloat2 14s ease-in-out infinite; }
+  .orb-c{ width:200px; height:200px; bottom:6%; left:38%; background:radial-gradient(circle, rgba(255,106,26,0.14) 0%, transparent 70%); animation:orbFloat3 9s ease-in-out infinite; }
+  @keyframes orbFloat1{ 0%,100%{ transform:translate(0,0) scale(1);} 50%{ transform:translate(30px,-24px) scale(1.12);} }
+  @keyframes orbFloat2{ 0%,100%{ transform:translate(0,0) scale(1);} 50%{ transform:translate(-26px,20px) scale(0.9);} }
+  @keyframes orbFloat3{ 0%,100%{ transform:translate(0,0) scale(1);} 50%{ transform:translate(18px,16px) scale(1.15);} }
   .hero-content{ position:relative; z-index:2; max-width:760px; }
   .hero-eyebrow{
     display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px;
@@ -173,11 +180,18 @@ LANDING_HTML = r"""<!DOCTYPE html>
   .benefit-grid{ display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:60px; }
   .benefit-card{
     background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg);
-    padding:28px; text-align:left; transition:border-color .3s, transform .3s;
+    padding:28px; text-align:left; transition:border-color .35s, transform .35s, box-shadow .35s;
   }
-  .benefit-card:hover{ border-color:var(--border-hi); transform:translateY(-4px); }
+  .benefit-card:hover{ border-color:var(--border-hi); transform:translateY(-6px); box-shadow:0 24px 60px rgba(255,106,26,0.14); }
   .benefit-card h3{ font-size:18px; font-weight:700; margin:22px 0 8px; letter-spacing:-.01em; }
   .benefit-card p{ font-size:13.5px; color:var(--text-2); line-height:1.6; }
+  .icon-ring{ position:relative; display:inline-flex; align-items:center; justify-content:center; }
+  .icon-ring::before{
+    content:''; position:absolute; inset:-10px; border-radius:50%;
+    background:radial-gradient(circle, rgba(255,106,26,0.28) 0%, transparent 70%);
+    animation:iconPulse 2.6s ease-in-out infinite; z-index:0;
+  }
+  @keyframes iconPulse{ 0%,100%{ transform:scale(1); opacity:.7;} 50%{ transform:scale(1.35); opacity:1;} }
   .mock{
     background:var(--card-2); border:1px solid var(--border); border-radius:var(--radius-md);
     padding:20px; height:190px; position:relative; overflow:hidden;
@@ -226,9 +240,20 @@ LANDING_HTML = r"""<!DOCTYPE html>
   .steps{ display:grid; grid-template-columns:repeat(4,1fr); gap:20px; margin-top:60px; text-align:left; counter-reset:step; }
   .step{
     background:var(--card); border:1px solid var(--border); border-radius:var(--radius-md); padding:26px 22px;
-    position:relative; transition:border-color .3s, transform .3s;
+    position:relative; transition:border-color .35s, transform .35s, box-shadow .35s;
   }
-  .step:hover{ border-color:var(--border-hi); transform:translateY(-3px); }
+  .step:hover{ border-color:var(--border-hi); transform:translateY(-5px); box-shadow:0 20px 50px rgba(255,106,26,0.13); }
+  .step-badge{
+    position:relative; width:38px; height:38px; border-radius:50%; margin-bottom:18px;
+    background:var(--card-2); border:1px solid var(--border-hi);
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:13px; font-weight:700; color:var(--orange-2);
+  }
+  .step-badge::before{
+    content:''; position:absolute; inset:-8px; border-radius:50%;
+    background:radial-gradient(circle, rgba(255,106,26,0.22) 0%, transparent 72%);
+    animation:iconPulse 2.6s ease-in-out infinite; z-index:-1;
+  }
   .step .num{
     font-family:var(--mono); font-size:11px; color:var(--orange-2); letter-spacing:.06em; margin-bottom:18px;
     display:flex; align-items:center; gap:8px;
@@ -294,6 +319,9 @@ LANDING_HTML = r"""<!DOCTYPE html>
 
 <section id="hero">
   <div id="hero-glow"></div>
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="orb orb-c"></div>
   <canvas id="hero-particles"></canvas>
   <div class="hero-content">
     <div class="hero-eyebrow rv in"><i></i> AI Data Analyst Agent · Hackathon 2026</div>
@@ -336,7 +364,7 @@ LANDING_HTML = r"""<!DOCTYPE html>
       <div class="benefit-card rv">
         <div class="mock mock-risk">
           <div class="row1">
-            <div class="avatar"></div>
+            <div class="icon-ring"><div class="avatar"></div></div>
             <div class="who"><b>ACC‑10229</b>Flagged transfer</div>
             <div class="amt">$182,400</div>
           </div>
@@ -402,10 +430,10 @@ LANDING_HTML = r"""<!DOCTYPE html>
     <p class="sub rv" style="margin-left:auto; margin-right:auto;">One question in, one grounded, explainable answer out.</p>
 
     <div class="steps">
-      <div class="step rv"><div class="num">STEP 01</div><h4>Ask a question</h4><p>Type a question in plain English — the way you'd ask a fellow investigator, not a database.</p></div>
-      <div class="step rv"><div class="num">STEP 02</div><h4>Agents run</h4><p>Intent → SQL → Fraud Detection → Network Analysis hand off cleanly, each stage visible on screen.</p></div>
-      <div class="step rv"><div class="num">STEP 03</div><h4>Evidence surfaces</h4><p>A risk score, a highlighted transaction cycle, and the exact SQL that was executed — nothing hidden.</p></div>
-      <div class="step rv"><div class="num">STEP 04</div><h4>Report generated</h4><p>A plain‑English explanation and a downloadable investigation report, ready for a compliance review.</p></div>
+      <div class="step rv"><div class="step-badge">1</div><div class="num">STEP 01</div><h4>Ask a question</h4><p>Type a question in plain English — the way you'd ask a fellow investigator, not a database.</p></div>
+      <div class="step rv"><div class="step-badge">2</div><div class="num">STEP 02</div><h4>Agents run</h4><p>Intent → SQL → Fraud Detection → Network Analysis hand off cleanly, each stage visible on screen.</p></div>
+      <div class="step rv"><div class="step-badge">3</div><div class="num">STEP 03</div><h4>Evidence surfaces</h4><p>A risk score, a highlighted transaction cycle, and the exact SQL that was executed — nothing hidden.</p></div>
+      <div class="step rv"><div class="step-badge">4</div><div class="num">STEP 04</div><h4>Report generated</h4><p>A plain‑English explanation and a downloadable investigation report, ready for a compliance review.</p></div>
     </div>
   </div>
 </section>
@@ -597,6 +625,16 @@ footer{{ visibility:hidden; }}
 }}
 .stApp h1, .stApp h2, .stApp h3{{ color:#fff; letter-spacing:-0.02em; }}
 .stApp a{{ color:var(--orange-2); }}
+/* CRITICAL: never touch font-family on Streamlit's icon-font elements --
+   these render icons (sidebar collapse arrow, chat avatars, etc.) via
+   ligature text in "Material Symbols" font. Overriding to Inter breaks
+   the ligature and shows raw text like "face" / "keyboard_double_arrow_right"
+   instead of the icon glyph. */
+[data-testid="stIconMaterial"], span[data-testid="stIconMaterial"],
+.material-symbols-outlined, .material-symbols-rounded{{
+    font-family:"Material Symbols Outlined","Material Symbols Rounded" !important;
+    color:inherit;
+}}
 ::selection{{ background:var(--orange); color:#160b03; }}
 
 /* belt-and-suspenders: some Streamlit-internal wrapper divs around the
@@ -695,7 +733,14 @@ section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]{
     background:var(--surface-2); border:1px solid var(--border); border-radius:16px;
     box-shadow:0 10px 30px rgba(0,0,0,0.25);
 }
-[data-testid="stChatInput"] textarea{ color:var(--text-1) !important; }
+[data-testid="stChatInput"] textarea,
+[data-testid="stChatInputTextArea"]{
+    color:#14110D !important;
+    -webkit-text-fill-color:#14110D !important;
+    caret-color:#14110D !important;
+}
+[data-testid="stChatInput"] textarea::placeholder,
+[data-testid="stChatInputTextArea"]::placeholder{ color:#6b6459 !important; opacity:1 !important; }
 
 /* alerts (st.warning / st.info / st.error) -- selectors doubled up
    (data-testid + class + a *= fallback) because Streamlit has renamed
@@ -733,7 +778,7 @@ pre code{ background:transparent; color:inherit; padding:0; }
 
 
 def render_console_header(title: str = "FraudLens", subtitle: str | None = None):
-    """Sticky branded top bar + heading for the console page.
+    """Sticky branded top bar + hero-style heading panel for the console page.
 
     Replaces `st.title("🔍 FraudLens")` + `st.caption(...)`. Call this
     right after `apply_console_theme()`.
@@ -763,14 +808,31 @@ def render_console_header(title: str = "FraudLens", subtitle: str | None = None)
     )
     st.markdown(
         f"""
-        <div style="display:flex; align-items:center; gap:14px; margin-bottom:2px;">
-          <div style="width:42px; height:42px; border-radius:12px; flex-shrink:0;
-                      background:linear-gradient(135deg,#FF6A1A,#FF8A3D);
-                      display:flex; align-items:center; justify-content:center; font-size:19px;
-                      box-shadow:0 8px 24px rgba(255,106,26,.3);">🔍</div>
-          <h1 style="margin:0; font-size:27px;">{title}</h1>
+        <div style="position:relative; border-radius:22px; overflow:hidden; padding:38px 36px 34px;
+                    margin-bottom:26px; background:#0D0B0A; border:1px solid rgba(255,255,255,0.07);">
+          <div style="position:absolute; width:340px; height:340px; border-radius:46% 54% 60% 40%/50% 45% 55% 50%;
+                      top:-120px; right:-80px; z-index:0; filter:blur(6px); opacity:0.55;
+                      background:radial-gradient(circle at 35% 35%, rgba(255,106,26,0.55), rgba(255,138,61,0.15) 55%, transparent 75%);
+                      animation:consoleBlobFloat 10s ease-in-out infinite;"></div>
+          <div style="position:absolute; width:220px; height:220px; border-radius:60% 40% 45% 55%/55% 60% 40% 45%;
+                      bottom:-90px; left:10%; z-index:0; filter:blur(6px); opacity:0.4;
+                      background:radial-gradient(circle at 60% 40%, rgba(80,120,255,0.35), transparent 70%);
+                      animation:consoleBlobFloat 13s ease-in-out infinite reverse;"></div>
+          <div style="position:relative; z-index:1; display:flex; align-items:center; gap:16px; margin-bottom:6px;">
+            <div style="width:46px; height:46px; border-radius:13px; flex-shrink:0;
+                        background:linear-gradient(135deg,#FF6A1A,#FF8A3D);
+                        display:flex; align-items:center; justify-content:center; font-size:21px;
+                        box-shadow:0 10px 26px rgba(255,106,26,.35);">🔍</div>
+            <h1 style="margin:0; font-size:34px; font-weight:800; letter-spacing:-0.03em;">{title}</h1>
+          </div>
+          {f'<p style="position:relative; z-index:1; color:var(--text-2); font-size:14.5px; margin:8px 0 0; max-width:560px; line-height:1.6;">{subtitle}</p>' if subtitle else ''}
         </div>
-        {f'<p style="color:var(--text-2); font-size:14px; margin:6px 0 24px; max-width:640px;">{subtitle}</p>' if subtitle else '<div style="margin-bottom:18px;"></div>'}
+        <style>
+        @keyframes consoleBlobFloat{{
+            0%,100%{{ transform:translate(0,0) scale(1); }}
+            50%{{ transform:translate(-14px,16px) scale(1.08); }}
+        }}
+        </style>
         """,
         unsafe_allow_html=True,
     )
