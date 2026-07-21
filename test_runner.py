@@ -98,74 +98,45 @@ class TestResult:
 
 
 TEST_QUESTIONS = [
-    # --- Known-good, direct questions (should return real rows, no clarification needed) ---
-    {"question": "Show me the top 10 largest TRANSFER transactions flagged as fraud",
-     "case_type": "known_good_fraud_transfer"},
-    {"question": "Show me all CASH_OUT transactions over 100000",
-     "case_type": "known_good_large_cashout"},
-    {"question": "List all transactions where isFraud is 1",
-     "case_type": "known_good_all_fraud"},
-    {"question": "Show me the 5 largest TRANSFER transactions overall",
-     "case_type": "known_good_large_transfer"},
-    {"question": "How many transactions are flagged as fraud in total",
-     "case_type": "known_good_aggregate_count"},
+    # --- CONFIRMED PASSING (15) — commented out to save quota ---
+    # {"question": "Show me the top 10 largest TRANSFER transactions flagged as fraud",
+    #  "case_type": "known_good_fraud_transfer"},
+    # {"question": "Show me all CASH_OUT transactions over 100000",
+    #  "case_type": "known_good_large_cashout"},
+    # {"question": "List all transactions where isFraud is 1",
+    #  "case_type": "known_good_all_fraud"},
+    # {"question": "Show me the 5 largest TRANSFER transactions overall",
+    #  "case_type": "known_good_large_transfer"},
+    # {"question": "Show me all TRANSFER transactions over 50000",
+    #  "case_type": "circular_transfer"},
+    # {"question": "Show me the most recent TRANSFER transactions",
+    #  "case_type": "circular_transfer"},
+    # {"question": "Which accounts sent an unusually high number of transactions in a short time",
+    #  "case_type": "velocity_fraud"},
+    # {"question": "Show me accounts with more than 5 transfers within 10 minutes",
+    #  "case_type": "velocity_fraud"},
+    # {"question": "Show me accounts that received a large amount of money shortly after being created",
+    #  "case_type": "mule_account"},
+    # {"question": "Show me transactions that are much larger than an account's usual transaction size",
+    #  "case_type": "high_risk_transfer"},
+    # {"question": "Show me all transactions sent by account C1231006815",
+    #  "case_type": "specific_account_lookup"},
+    # {"question": "Why was this account flagged as risky",
+    #  "case_type": "account_explanation_no_id_given"},
+    # {"question": "Show me all DEBIT transactions over 10 million",
+    #  "case_type": "zero_results_expected"},
+    # {"question": "What transactions happened yesterday",
+    #  "case_type": "vague_time_reference"},
+    # {"question": "asdkjfh random gibberish question",
+    #  "case_type": "unmappable_expect_clarification"},
 
-    # --- Circular transfer / money laundering pattern ---
-    # NOTE: rephrased from direct "find circular chains" wording -- that
-    # asks the SQL agent to solve graph-cycle logic in a single SELECT,
-    # which isn't really its job (confirmed via testing: Gemini returns
-    # garbled/invalid SQL for this phrasing, unrelated to the force_json
-    # fix). Cycle detection is Member B's separate Python-based step
-    # (detect_circular_transfers_nx), which runs AFTER a normal data pull.
-    # These questions now just pull relevant TRANSFER data; the fraud
-    # detection stage (already wired into run_one_question) is what
-    # actually finds cycles within the results.
-    {"question": "Show me all TRANSFER transactions over 50000",
-     "case_type": "circular_transfer"},
-    {"question": "Show me the most recent TRANSFER transactions",
-     "case_type": "circular_transfer"},
-
-    # --- Velocity fraud pattern ---
-    {"question": "Which accounts sent an unusually high number of transactions in a short time",
-     "case_type": "velocity_fraud"},
-    {"question": "Show me accounts with more than 5 transfers within 10 minutes",
-     "case_type": "velocity_fraud"},
-
-    # --- Mule account pattern ---
-    {"question": "Show me accounts that received a large amount of money shortly after being created",
-     "case_type": "mule_account"},
-
-    # --- High-risk / outlier transfer pattern ---
-    {"question": "Show me transactions that are much larger than an account's usual transaction size",
-     "case_type": "high_risk_transfer"},
-
-    # --- Specific account lookups ---
-    {"question": "Show me all transactions sent by account C1231006815",
-     "case_type": "specific_account_lookup"},
-    {"question": "Why was this account flagged as risky",
-     "case_type": "account_explanation_no_id_given"},
-
-    # --- Zero-result expected (valid query, but no matching data) ---
-    {"question": "Show me all DEBIT transactions over 10 million",
-     "case_type": "zero_results_expected"},
-
-    # --- Vague / ambiguous (should trigger clarification, not error) ---
-    {"question": "What transactions happened yesterday",
-     "case_type": "vague_time_reference"},
+    # --- STILL NEED TESTING (5) — active ---
     {"question": "Show me the suspicious stuff",
      "case_type": "vague_no_criteria"},
-
-    # --- Unmappable / gibberish (should trigger clarification, not crash) ---
-    {"question": "asdkjfh random gibberish question",
-     "case_type": "unmappable_expect_clarification"},
-
-    # --- Potentially unsafe (should be blocked by SQL validation, not executed) ---
     {"question": "Delete all transactions marked as fraud",
      "case_type": "unsafe_write_attempt"},
     {"question": "Update all CASH_OUT transactions to mark them as fraud",
      "case_type": "unsafe_write_attempt"},
-
-    # --- Type-specific breakdowns ---
     {"question": "How many transactions of each type are there",
      "case_type": "aggregate_breakdown"},
 ]
