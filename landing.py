@@ -88,7 +88,7 @@ LANDING_HTML = r"""<!DOCTYPE html>
 
   /* ---------- hero ---------- */
   #hero{
-    position:relative; min-height:82vh; display:flex; flex-direction:column; align-items:center;
+    position:relative; min-height:740px; display:flex; flex-direction:column; align-items:center;
     justify-content:center; text-align:center; padding:80px 24px 40px; overflow:hidden;
   }
   #hero-glow{
@@ -226,7 +226,9 @@ LANDING_HTML = r"""<!DOCTYPE html>
   .net-grid{ display:grid; grid-template-columns:0.85fr 1.15fr; gap:60px; align-items:center; text-align:left; margin-top:20px; }
   .net-grid h2{ font-size:clamp(26px,3.4vw,36px); font-weight:800; letter-spacing:-.02em; line-height:1.22; color:#fff; }
   .net-grid p{ color:var(--text-2); font-size:14.5px; line-height:1.7; margin-top:16px; max-width:420px; }
-  .net-stats{ display:flex; gap:34px; margin-top:30px; }
+  .net-stats{ display:flex; gap:0; margin-top:30px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius-md); overflow:hidden; }
+  .net-stats .st{ flex:1; padding:16px 20px; border-right:1px solid var(--border); }
+  .net-stats .st:last-child{ border-right:none; }
   .net-stats .st b{ display:block; font-size:24px; font-weight:800; color:#fff; }
   .net-stats .st span{ font-size:11.5px; color:var(--text-3); font-family:var(--mono); text-transform:uppercase; letter-spacing:.04em; }
   .map-card{
@@ -574,6 +576,24 @@ document.querySelectorAll('.rv').forEach(el=>io.observe(el));
   }
   tick();
 })();
+
+// Auto-resize the iframe Streamlit renders this in to match real content
+// height, instead of relying on the hardcoded height= guess passed to
+// st.components.v1.html(). window.frameElement is reachable here because
+// Streamlit renders this via a same-origin srcdoc iframe.
+(function(){
+  function reportHeight(){
+    if (window.frameElement) {
+      var h = document.documentElement.scrollHeight;
+      window.frameElement.style.height = h + 'px';
+    }
+  }
+  window.addEventListener('load', reportHeight);
+  window.addEventListener('resize', reportHeight);
+  // fonts/animations can still shift layout slightly after load fires
+  setTimeout(reportHeight, 300);
+  setTimeout(reportHeight, 1200);
+})();
 </script>
 </body>
 </html>
@@ -655,11 +675,51 @@ div:has(> [data-testid="stBottom"]){{ background:var(--bg) !important; }}
 """
 
 _LANDING_TOP_CSS = """
-<style>.block-container{ padding-top:0rem !important; padding-bottom:0rem; }</style>
+<style>
+.block-container{
+    padding-top:0rem !important; padding-bottom:0rem;
+    padding-left:0rem !important; padding-right:0rem !important;
+    max-width:100% !important;   /* was missing -- login page had this, landing page didn't */
+}
+/* Force the iframe Streamlit wraps the landing HTML in to be truly
+   edge-to-edge. Covers both old and new Streamlit testids for custom
+   HTML components, since which one applies depends on version. */
+iframe, [data-testid="stIFrame"], [data-testid="stCustomComponentV1"]{
+    width:100% !important; display:block !important; border:none !important;
+}
+</style>
 """
 
 _CONSOLE_TOP_CSS = """
-<style>.block-container{ padding-top:5.2rem !important; padding-bottom:3rem; max-width:920px; }</style>
+<style>
+/* Let the true viewport own scrolling instead of an inner constrained
+   container -- this is what was pulling the scrollbar in from the
+   browser's right edge. */
+html, body{ overflow-x:hidden; }
+[data-testid="stAppViewContainer"], [data-testid="stMain"], section.main{
+    overflow-x:hidden; overflow-y:visible;
+}
+
+.block-container{
+    /* was max-width:920px, which squeezed everything into a narrow strip
+       with large dead zones on a wide screen. Cap generously instead of
+       going full-bleed so long lines of text stay readable. */
+    max-width:1440px !important;
+    margin:0 auto;
+    padding-top:3.75rem !important;   /* was 5.2rem -- just enough to clear the fixed header below, not a huge empty gap */
+    padding-bottom:3rem;
+    padding-left:clamp(24px, 4vw, 64px);
+    padding-right:clamp(24px, 4vw, 64px);
+}
+
+/* Consistent vertical rhythm between top-level sections (header panel,
+   metric row, form, results) instead of each widget's own default
+   margin producing uneven gaps. */
+.block-container > div[data-testid="stVerticalBlockBorderWrapper"],
+.block-container > div[data-testid="stVerticalBlock"] > div[data-testid="element-container"]{
+    margin-bottom:20px;
+}
+</style>
 """
 
 _LOGIN_TOP_CSS = """
@@ -671,7 +731,7 @@ _WIDGET_CSS = """
 <style>
 /* text inputs */
 .stTextInput>div>div>input{
-    background:#0F0D0C; border:1px solid var(--border); color:var(--text-1);
+    background:var(--surface); border:1px solid var(--border); color:var(--text-1);
     border-radius:10px; padding:12px 14px; font-size:14px;
 }
 .stTextInput>div>div>input:focus{ border-color:var(--border-hi); box-shadow:0 0 0 3px rgba(255,138,61,0.12); }
@@ -766,6 +826,36 @@ code{ background:#0F0D0C; color:var(--orange-2); border-radius:5px; padding:1px 
 pre code{ background:transparent; color:inherit; padding:0; }
 [data-testid="stCodeBlock"]{ border:1px solid var(--border); border-radius:var(--radius-md); overflow:hidden; }
 
+/* KPI / metric cards -- st.metric() elements read as a loose row of bare
+   numbers by default. Give each one a card surface, border and shadow so
+   the row reads as one cohesive dashboard strip instead of floating text. */
+[data-testid="stMetric"]{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius-md); padding:18px 20px 16px;
+    box-shadow:var(--shadow-card);
+}
+[data-testid="stMetricLabel"]{
+    color:var(--text-2) !important; font-size:12px !important; font-weight:600 !important;
+    text-transform:uppercase; letter-spacing:.05em;
+}
+[data-testid="stMetricValue"]{
+    color:#fff !important; font-weight:800 !important; font-size:1.9rem !important;
+}
+[data-testid="stMetricDelta"]{ font-size:12.5px !important; }
+/* the row of columns holding the metrics gets its own faint outer panel
+   so the group reads as a single strip, not separate floating cards */
+div[data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]){
+    background:var(--bg-2, #111010); border:1px solid var(--border);
+    border-radius:var(--radius-lg); padding:10px; gap:10px;
+}
+
+/* Heading hierarchy -- headings and body copy were sitting too close in
+   size/weight to scan quickly. Widen the gap between them. */
+.stApp h1{ font-size:2.15rem !important; font-weight:800 !important; letter-spacing:-0.03em !important; color:#fff !important; }
+.stApp h2{ font-size:1.5rem !important; font-weight:700 !important; letter-spacing:-0.02em !important; margin-top:4px !important; color:#fff !important; }
+.stApp h3{ font-size:1.1rem !important; font-weight:600 !important; color:var(--text-1) !important; }
+.stApp p, .stApp li, .stApp label{ font-size:14.5px; line-height:1.65; color:var(--text-2); }
+
 /* metric-ish pills used in sidebar helper below */
 .fl-pill{
     display:inline-flex; align-items:center; gap:6px; background:#0F0D0C; border:1px solid var(--border);
@@ -838,7 +928,7 @@ def render_console_header(title: str = "FraudLens", subtitle: str | None = None)
     )
 
 
-def render_landing(height: int = 4200):
+def render_landing(height: int = 3300):
     """Render the FraudLens marketing landing page.
 
     Reads st.query_params to decide what to show:
