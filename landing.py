@@ -157,6 +157,39 @@ LANDING_HTML = r"""<!DOCTYPE html>
   }
   .hero-note svg{ width:11px; height:11px; margin-left:2px; }
 
+  /* pipeline modal */
+  #pipeline-modal{
+    position:absolute; inset:0; z-index:200; display:none;
+    background:rgba(6,4,3,0.72); backdrop-filter:blur(3px);
+    padding:24px;
+  }
+  #pipeline-modal.open{ display:block; }
+  .pm-card{
+    position:absolute; left:50%; transform:translateX(-50%);
+    width:calc(100% - 48px); max-width:760px; max-height:86vh; overflow-y:auto;
+    background:var(--card); border:1px solid var(--border-hi); border-radius:var(--radius-lg);
+    padding:32px; box-shadow:0 30px 80px rgba(0,0,0,0.5);
+  }
+  .pm-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:6px; }
+  .pm-head h3{ font-size:22px; font-weight:800; color:#fff; margin:0; }
+  .pm-close{
+    background:none; border:1px solid var(--border); color:var(--text-2); width:30px; height:30px;
+    border-radius:999px; cursor:pointer; font-size:16px; line-height:1; flex-shrink:0;
+  }
+  .pm-close:hover{ color:#fff; border-color:var(--border-hi); }
+  .pm-sub{ color:var(--text-2); font-size:14px; margin:0 0 26px; }
+  .pm-step{
+    display:flex; gap:16px; padding:16px 0; border-top:1px solid var(--border);
+  }
+  .pm-step:first-of-type{ border-top:none; }
+  .pm-num{
+    flex-shrink:0; width:30px; height:30px; border-radius:999px; border:1px solid var(--border-hi);
+    color:var(--orange-2); font-family:var(--mono); font-size:12px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .pm-step b{ display:block; color:#fff; font-size:14.5px; margin-bottom:3px; }
+  .pm-step p{ margin:0; color:var(--text-2); font-size:13.5px; line-height:1.55; }
+
   /* trust row */
   .trust-row{ text-align:center; margin-top:70px; padding-bottom:10px; }
   .trust-row .lbl{ font-size:11.5px; color:var(--text-3); font-family:var(--mono); letter-spacing:.06em; text-transform:uppercase; margin-bottom:26px; }
@@ -307,12 +340,6 @@ LANDING_HTML = r"""<!DOCTYPE html>
     <span class="mark"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#1a0d00" stroke-width="2.2"/><line x1="16.2" y1="16.2" x2="21" y2="21" stroke="#1a0d00" stroke-width="2.2" stroke-linecap="round"/></svg></span>
     FraudLens AI
   </div>
-  <div class="navlinks">
-    <a href="#network-section">Investigators</a>
-    <a href="#how">How it works</a>
-    <a href="#benefits">Product</a>
-    <a href="#cta">Docs</a>
-  </div>
   <div class="navright">
     <a class="signin" href="#" onclick="window.open(window.parent.location.origin + window.parent.location.pathname + '?page=login', '_blank'); return false;">Sign In</a>
     <a class="btn-pill" href="#" onclick="window.open(window.parent.location.origin + window.parent.location.pathname + '?page=login', '_blank'); return false;" style="display:inline-block;">Explore Demo</a>
@@ -338,7 +365,7 @@ LANDING_HTML = r"""<!DOCTYPE html>
       <span>7‑agent pipeline</span>
       <span>Install via GitHub</span>
     </div>
-    <a class="hero-note" href="#how">
+    <a class="hero-note" href="#" onclick="openPipelineModal(); return false;">
       <span class="tag">New</span> See the full agent pipeline
       <svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
@@ -355,6 +382,49 @@ LANDING_HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 </section>
+
+<!-- Pipeline modal: names below are inferred from the agents/ folder
+     (intent_agent, sql_agent, fraud_detection_agent, community_detection,
+     central_accounts, graph_builder, explanation_agent). Double check the
+     labels/descriptions match what you actually want to show publicly. -->
+<div id="pipeline-modal" onclick="if(event.target===this) closePipelineModal()">
+  <div class="pm-card">
+    <div class="pm-head">
+      <h3>The 7-Agent Pipeline</h3>
+      <button class="pm-close" onclick="closePipelineModal()">✕</button>
+    </div>
+    <p class="pm-sub">Every question runs through this chain — each stage's output is shown on screen, nothing happens off camera.</p>
+
+    <div class="pm-step">
+      <div class="pm-num">1</div>
+      <div><b>Intent Agent</b><p>Reads your question in plain English and turns it into a structured, unambiguous request.</p></div>
+    </div>
+    <div class="pm-step">
+      <div class="pm-num">2</div>
+      <div><b>NL-to-SQL Agent</b><p>Writes a safe, read-only SQL query against the transaction data based on that structured intent.</p></div>
+    </div>
+    <div class="pm-step">
+      <div class="pm-num">3</div>
+      <div><b>Fraud Detection Agent</b><p>Runs rule-based checks — velocity, cycles, mule patterns — and scores the risk of what the query returned.</p></div>
+    </div>
+    <div class="pm-step">
+      <div class="pm-num">4</div>
+      <div><b>Community Detection Agent</b><p>Groups accounts into clusters to surface coordinated rings rather than isolated transactions.</p></div>
+    </div>
+    <div class="pm-step">
+      <div class="pm-num">5</div>
+      <div><b>Central Accounts Agent</b><p>Identifies hub/mule accounts that sit at the center of unusually high transaction flow.</p></div>
+    </div>
+    <div class="pm-step">
+      <div class="pm-num">6</div>
+      <div><b>Network Graph Agent</b><p>Builds the transaction graph and detects laundering cycles, ready to render visually.</p></div>
+    </div>
+    <div class="pm-step">
+      <div class="pm-num">7</div>
+      <div><b>Explanation Agent</b><p>Writes the plain-English summary tying the evidence together into a report you can hand to compliance.</p></div>
+    </div>
+  </div>
+</div>
 
 <section id="benefits">
   <div class="section-inner center">
@@ -577,6 +647,34 @@ document.querySelectorAll('.rv').forEach(el=>io.observe(el));
   tick();
 })();
 
+// Pipeline modal: position:fixed doesn't work here because the iframe is
+// auto-sized to the full document height (see reportHeight() below), so
+// "fixed" would center against the whole 3000px+ document instead of what's
+// actually visible. Compute the visible center from the parent window's
+// real scroll position instead.
+function openPipelineModal(){
+  var modal = document.getElementById('pipeline-modal');
+  modal.classList.add('open');
+  positionPipelineModal();
+}
+function closePipelineModal(){
+  document.getElementById('pipeline-modal').classList.remove('open');
+}
+function positionPipelineModal(){
+  var modal = document.getElementById('pipeline-modal');
+  if (!modal.classList.contains('open')) return;
+  var card = modal.querySelector('.pm-card');
+  var pw = window.parent, scrollY = 0, viewH = window.innerHeight;
+  try { scrollY = pw.scrollY || pw.pageYOffset || 0; viewH = pw.innerHeight || viewH; } catch(e){}
+  var cardH = card.offsetHeight || 400;
+  var top = scrollY + Math.max(24, (viewH - cardH) / 2);
+  card.style.top = top + 'px';
+}
+try {
+  window.parent.addEventListener('scroll', positionPipelineModal);
+  window.parent.addEventListener('resize', positionPipelineModal);
+} catch(e){}
+
 // Auto-resize the iframe Streamlit renders this in to match real content
 // height, instead of relying on the hardcoded height= guess passed to
 // st.components.v1.html(). window.frameElement is reachable here because
@@ -590,6 +688,9 @@ document.querySelectorAll('.rv').forEach(el=>io.observe(el));
   }
   window.addEventListener('load', reportHeight);
   window.addEventListener('resize', reportHeight);
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') closePipelineModal();
+  });
   // fonts/animations can still shift layout slightly after load fires
   setTimeout(reportHeight, 300);
   setTimeout(reportHeight, 1200);
